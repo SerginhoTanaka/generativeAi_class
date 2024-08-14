@@ -12,6 +12,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 
 class DocumentProcessor:
     def __init__(self, data_dir: str, api_key: str):
@@ -70,8 +71,9 @@ class QAChain:
         ])
         return create_stuff_documents_chain(self.llm, qa_prompt)
 
-    def get_answer(self, user_input: str, chat_history: list):
-        return self.convo_qa_chain.invoke({"input": user_input, "chat_history": chat_history})
+    def get_answer(self, user_input: str, chat_history: StreamlitChatMessageHistory):
+        result = self.convo_qa_chain.invoke({"input": user_input, "chat_history": chat_history.messages})
+        return result['answer']
 
 class StreamlitApp:
     def __init__(self, api_key: str, data_dir: str):
@@ -80,24 +82,24 @@ class StreamlitApp:
         self.processor = DocumentProcessor(data_dir, api_key)
         self.vector_store_manager = VectorStoreManager(self.processor.documents, api_key)
         self.qa_chain = QAChain(self.vector_store_manager.vector_store, api_key)
+        self.chat_history = StreamlitChatMessageHistory(key="chat_messages")
 
     def run(self):
+        st.set_page_config(page_title="Document QA System")
         st.title("Document QA System")
 
-        user_input = st.text_input("Ask a question:")
-        chat_history = st.session_state.get("chat_history", [])
+        user_input = st.chat_input("Ask a question:")
 
-        if st.button("Submit"):
-            if user_input:
-                result = self.qa_chain.get_answer(user_input, chat_history)
-                st.write(result)
-                chat_history.append({"user": user_input, "response": result})
-                st.session_state.chat_history = chat_history
-            else:
-                st.warning("Please enter a question.")
-
-        if st.checkbox("Show chat history"):
-            st.write(chat_history)
+        if user_input:
+            with st.chat_message("user"):
+                st.markdown(user_input)
+            self.chat_history.add_user_message(user_input)
+            # print(self.chat_history)
+            result = self.qa_chain.get_answer(user_input, self.chat_history)
+            
+            with st.chat_message("assistant"):
+                st.markdown(result)
+            self.chat_history.add_ai_message(result)
 
 # Load environment variables
 load_dotenv()
